@@ -333,6 +333,8 @@ def save_checkpoint(
             "d_ff": model.d_ff,
             "dropout": model.dropout.p,
         }
+        "src_vocab": model.src_vocab,
+        "tgt_vocab": model.tgt_vocab,
     }
 
     torch.save(checkpoint, path)
