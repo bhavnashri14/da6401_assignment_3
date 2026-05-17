@@ -680,7 +680,7 @@ class Transformer(nn.Module):
         device = next(self.parameters()).device
 
         # Tokenize source sentence       
-        tokens = ["<sos>"]+ self.src_tokenizer(src_sentence.lower())+ ["<eos>"]
+        tokens = tokens = ["<sos>"] + src_sentence.lower().strip().split() + ["<eos>"]
         
         # convert to indices
         src_indices = [
