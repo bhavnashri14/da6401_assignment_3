@@ -550,8 +550,8 @@ class Transformer(nn.Module):
         super().__init__()
 
         self.d_model = d_model
-        self.src_vocab = src_vocab  
-        self.tgt_vocab = tgt_vocab  
+        self.src_vocab = None
+        self.tgt_vocab = None
 
         # embeddings
         self.src_embed = nn.Embedding(src_vocab_size, d_model)
@@ -669,72 +669,62 @@ class Transformer(nn.Module):
 
 
     def infer(self, src_sentence: str) -> str:
-        """
-        Translates a German sentence to English using greedy autoregressive decoding.
-        
-        Args:
-            src_sentence: The raw German text.
-            
-            
-        Returns:
-            The fully translated English string, detokenized and clean.
-        """
-        self.eval()
-        device = next(self.parameters()).device
+      self.eval()
+      device = next(self.parameters()).device
 
-        # Tokenize source sentence       
-        tokens =  ["<sos>"] + src_sentence.lower().strip().split() + ["<eos>"]
-        
-        # convert to indices
-        src_indices = [
-            self.src_vocab.stoi.get(tok, self.src_vocab.stoi["<unk>"])
-            for tok in tokens
-        ]
+      if self.src_vocab is None or self.tgt_vocab is None:
+          raise ValueError(
+              "Vocabulary not attached to model. "
+              "Set model.src_vocab and model.tgt_vocab before inference."
+          )
 
-        src = torch.tensor(src_indices, dtype=torch.long, device=device).unsqueeze(0)
-        src_mask = make_src_mask(src).to(device)
+      tokens = ["<sos>"] + src_sentence.lower().strip().split() + ["<eos>"]
 
-        # Encode
-        memory = self.encode(src, src_mask)
+      src_indices = [
+          self.src_vocab.stoi.get(tok, self.src_vocab.stoi["<unk>"])
+          for tok in tokens
+      ]
 
-        #Start decoding
-        ys = torch.tensor(
-            [[self.tgt_vocab.stoi["<sos>"]]],
-            dtype=torch.long,
-            device=device
-        )
+      src = torch.tensor(src_indices, dtype=torch.long, device=device).unsqueeze(0)
+      src_mask = make_src_mask(src).to(device)
 
-        max_len = 100
+      memory = self.encode(src, src_mask)
 
-        for _ in range(max_len):
+      ys = torch.tensor(
+          [[self.tgt_vocab.stoi["<sos>"]]],
+          dtype=torch.long,
+          device=device
+      )
 
-            tgt_mask = make_tgt_mask(ys).to(device)
+      max_len = 100
 
-            out = self.decode(memory, src_mask, ys, tgt_mask)
+      for _ in range(max_len):
+          tgt_mask = make_tgt_mask(ys).to(device)
 
-            prob = out[:, -1, :]              # last timestep
-            next_word = torch.argmax(prob, dim=-1).item()
+          out = self.decode(memory, src_mask, ys, tgt_mask)
 
-            ys = torch.cat(
-                [ys, torch.tensor([[next_word]], device=device)],
-                dim=1
-            )
+          prob = out[:, -1, :]
+          next_word = torch.argmax(prob, dim=-1).item()
 
-            if next_word == self.tgt_vocab.stoi["<eos>"]:
-                break
+          ys = torch.cat(
+              [ys, torch.tensor([[next_word]], device=device)],
+              dim=1
+          )
 
-        # Convert back to words
-        output_tokens = ys.squeeze(0).tolist()
+          if next_word == self.tgt_vocab.stoi["<eos>"]:
+              break
 
-        words = []
-        for idx in output_tokens:
-            token = self.tgt_vocab.itos[idx]
+      # detokenize
+      output_tokens = ys.squeeze(0).tolist()
 
-            if token in ["<sos>", "<pad>"]:
-                continue
-            if token == "<eos>":
-                break
+      words = []
+      for idx in output_tokens:
+          token = self.tgt_vocab.itos[idx]
 
-            words.append(token)
+          if token in ["<sos>", "<pad>"]:
+              continue
+          if token == "<eos>":
+              break
+          words.append(token)
 
-        return " ".join(words)
+      return " ".join(words)
