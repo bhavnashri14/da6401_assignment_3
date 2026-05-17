@@ -22,6 +22,7 @@ from typing import Optional
 import math
 from nltk.translate.bleu_score import corpus_bleu
 from model import Transformer, make_src_mask, make_tgt_mask
+from dataset import Multi30kDataset, collate_fn
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -421,19 +422,29 @@ def run_training_experiment() -> None:
     wandb.init(project="da6401-a3", config=config)
 
     # Dataset + vocab
-    train_data = Multi30kDataset(split="train")
-    val_data   = Multi30kDataset(split="valid")
-    test_data  = Multi30kDataset(split="test")
+    train_data = Multi30kDataset(split="train")   # build_vocab called inside
+    src_vocab  = train_data.src_vocab
+    tgt_vocab  = train_data.tgt_vocab
 
-    src_vocab, tgt_vocab = train_data.build_vocab()
-
-    train_data.process_data()
+    val_data  = Multi30kDataset(split="valid")
+    val_data.set_vocab(src_vocab, tgt_vocab)
     val_data.process_data()
+
+    test_data = Multi30kDataset(split="test")
+    test_data.set_vocab(src_vocab, tgt_vocab)
     test_data.process_data()
 
-    train_loader = DataLoader(train_data, batch_size=config["batch_size"], shuffle=True)
-    val_loader   = DataLoader(val_data, batch_size=config["batch_size"])
-    test_loader  = DataLoader(test_data, batch_size=1)
+    pad_idx = src_vocab.stoi["<pad>"]
+
+    train_loader = DataLoader(train_data, batch_size=config["batch_size"], shuffle=True,
+                              collate_fn=lambda b: collate_fn(b, pad_idx))
+    val_loader   = DataLoader(val_data, batch_size=config["batch_size"],
+                              collate_fn=lambda b: collate_fn(b, pad_idx))
+    test_loader  = DataLoader(test_data, batch_size=1,
+                              collate_fn=lambda b: collate_fn(b, pad_idx))
+
+
+    
 
     # Model
     model = Transformer(

@@ -550,8 +550,11 @@ class Transformer(nn.Module):
         super().__init__()
 
         self.d_model = d_model
-        self.src_vocab = None
-        self.tgt_vocab = None
+        self.src_vocab_size = src_vocab_size
+        self.tgt_vocab_size = tgt_vocab_size
+        self.N = N
+        self.num_heads = num_heads
+        self.d_ff = d_ff
 
         # embeddings
         self.src_embed = nn.Embedding(src_vocab_size, d_model)

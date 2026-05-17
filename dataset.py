@@ -6,6 +6,17 @@ from torch.nn.utils.rnn import pad_sequence
 from datasets import load_dataset
 import spacy
 
+from torch.nn.utils.rnn import pad_sequence
+
+class Vocab:
+    def __init__(self, stoi, itos):
+        self.stoi = stoi
+        self.itos = itos
+    def get(self, token, default):
+        return self.stoi.get(token, default)
+    def __len__(self):
+        return len(self.stoi)
+
 class Multi30kDataset:
     def __init__(self, split='train',min_freq=2):
         """
@@ -73,77 +84,48 @@ class Multi30kDataset:
 
             de_tokens = self.tokenize_de(sample["de"])
             en_tokens = self.tokenize_en(sample["en"])
-
-            de_counter.update(de_tokens)
-            en_counter.update(en_tokens)
-
-        self.src_vocab = {}
-        self.src_itos = {}
-
+        src_stoi = {}
+        src_itos = {}
         for idx, token in enumerate(self.special_tokens):
-
-            self.src_vocab[token] = idx
-            self.src_itos[idx] = token
-
+            src_stoi[token] = idx
+            src_itos[idx] = token
         idx = len(self.special_tokens)
-
         for word, freq in sorted(de_counter.items()):
-
             if freq >= self.min_freq:
-
-                self.src_vocab[word] = idx
-                self.src_itos[idx] = word
-
+                src_stoi[word] = idx
+                src_itos[idx] = word
                 idx += 1
 
-        self.tgt_vocab = {}
-        self.tgt_itos = {}
-
+        # Build tgt (English) vocab
+        tgt_stoi = {}
+        tgt_itos = {}
         for idx, token in enumerate(self.special_tokens):
-
-            self.tgt_vocab[token] = idx
-            self.tgt_itos[idx] = token
-
+            tgt_stoi[token] = idx
+            tgt_itos[idx] = token
         idx = len(self.special_tokens)
-
         for word, freq in en_counter.items():
-
             if freq >= self.min_freq:
-
-                self.tgt_vocab[word] = idx
-                self.tgt_itos[idx] = word
-
+                tgt_stoi[word] = idx
+                tgt_itos[idx] = word
                 idx += 1
 
-        # Vocabulary sizes
+        # Wrap in Vocab objects   <-- THIS IS THE KEY FIX
+        self.src_vocab = Vocab(src_stoi, src_itos)
+        self.tgt_vocab = Vocab(tgt_stoi, tgt_itos)
         self.src_vocab_size = len(self.src_vocab)
         self.tgt_vocab_size = len(self.tgt_vocab)
-
-        self.src_vocab.stoi = self.src_vocab
-        self.src_vocab.itos = self.src_itos
-
-        self.tgt_vocab.stoi = self.tgt_vocab
-        self.tgt_vocab.itos = self.tgt_itos
         return self.src_vocab, self.tgt_vocab
-    def numericalize_de(self, tokens):
+    def set_vocab(self, src_vocab, tgt_vocab):
+        self.src_vocab = src_vocab
+        self.tgt_vocab = tgt_vocab
+        self.src_vocab_size = len(src_vocab)
+        self.tgt_vocab_size = len(tgt_vocab)
 
-        return [
-            self.src_vocab.get(
-                token,
-                self.src_vocab[self.UNK_TOKEN]
-            )
-            for token in tokens
-        ]
+    def numericalize_de(self, tokens):
+        return [self.src_vocab.stoi.get(token, self.src_vocab.stoi[self.UNK_TOKEN]) for token in tokens]
 
     def numericalize_en(self, tokens):
-
-        return [
-            self.tgt_vocab.get(
-                token,
-                self.tgt_vocab[self.UNK_TOKEN]
-            )
-            for token in tokens
-        ]
+        return [self.tgt_vocab.stoi.get(token, self.tgt_vocab.stoi[self.UNK_TOKEN]) for token in tokens]
 
     def process_data(self):
         """
@@ -188,3 +170,9 @@ class Multi30kDataset:
     def __getitem__(self, idx):
 
         return self.data[idx]
+
+def collate_fn(batch, pad_idx=1):
+    src_batch, tgt_batch = zip(*batch)
+    src_padded = pad_sequence(src_batch, batch_first=True, padding_value=pad_idx)
+    tgt_padded = pad_sequence(tgt_batch, batch_first=True, padding_value=pad_idx)
+    return src_padded, tgt_padded
