@@ -24,7 +24,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
+import spacy
+from collections import Counter
+from datasets import load_dataset
 # ══════════════════════════════════════════════════════════════════════
 #   STANDALONE ATTENTION FUNCTION  
 #    Exposed at module level so the autograder can import and test it
@@ -534,73 +536,68 @@ class Transformer(nn.Module):
         dropout        (float): Dropout probability (default 0.1).
     """
 
-    def __init__(
-        self,
-        src_vocab_size: int = 10000,
-        tgt_vocab_size: int = 10000,
-        d_model:   int   = 512,
-        N:         int   = 6,
-        num_heads: int   = 8,
-        d_ff:      int   = 2048,
-        dropout:   float = 0.1,
-        checkpoint_path: str = None,
-    ) -> None:
-        super().__init__()
-        self.src_vocab_size = src_vocab_size
-        self.tgt_vocab_size = tgt_vocab_size
-        self.d_model = d_model
-        self.N = N
-        self.num_heads = num_heads
-        self.d_ff = d_ff
-        self.dropout = dropout
+      def __init__(
+      self,
+      src_vocab_size: int = 10000,
+      tgt_vocab_size: int = 10000,
+      d_model: int = 512,
+      N: int = 6,
+      num_heads: int = 8,
+      d_ff: int = 2048,
+      dropout: float = 0.1,
+      checkpoint_path: str = None,
+  ) -> None:
+      super().__init__()
 
-        # Embeddings
-        self.src_embed = nn.Embedding(src_vocab_size, d_model)
-        self.tgt_embed = nn.Embedding(tgt_vocab_size, d_model)
+      self.src_vocab_size = src_vocab_size
+      self.tgt_vocab_size = tgt_vocab_size
+      self.d_model = d_model
 
-        # Positional Encoding
-        self.pos_encoding = PositionalEncoding(
-            d_model,
-            dropout
-        )
+      # =========================
+      # Embeddings
+      # =========================
+      self.src_embed = nn.Embedding(src_vocab_size, d_model)
+      self.tgt_embed = nn.Embedding(tgt_vocab_size, d_model)
 
-        # Encoder
-        encoder_layer = EncoderLayer(
-            d_model,
-            num_heads,
-            d_ff,
-            dropout
-        )
+      # Positional Encoding
+      self.pos_encoding = PositionalEncoding(d_model, dropout)
 
-        self.encoder = Encoder(encoder_layer, N)
+      # =========================
+      # Encoder / Decoder
+      # =========================
+      encoder_layer = EncoderLayer(d_model, num_heads, d_ff, dropout)
+      self.encoder = Encoder(encoder_layer, N)
 
-        # Decoder
-        decoder_layer = DecoderLayer(
-            d_model,
-            num_heads,
-            d_ff,
-            dropout
-        )
+      decoder_layer = DecoderLayer(d_model, num_heads, d_ff, dropout)
+      self.decoder = Decoder(decoder_layer, N)
 
-        self.decoder = Decoder(decoder_layer, N)
+      # Output projection
+      self.fc_out = nn.Linear(d_model, tgt_vocab_size)
 
-        # Final projection
-        self.fc_out = nn.Linear(d_model, tgt_vocab_size)
+      self.dropout = nn.Dropout(dropout)
 
-        self.dropout = nn.Dropout(dropout)
+      # =========================
+      # IMPORTANT: these MUST exist for infer()
+      # (autograder expects them to be set externally)
+      # =========================
+      self.src_tokenizer = None
+      self.tgt_tokenizer = None
+      self.src_vocab = None
+      self.tgt_vocab = None
 
-        # Xavier initialization
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-        # init should also load the model weights if checkpoint path provided, download the .pth file like this
-        if checkpoint_path is not None:
-            gdown.download(id="<.pth drive id>", output=checkpoint_path, quiet=False)
-            self.load_state_dict(
-                torch.load(checkpoint_path)
-            )
+      # =========================
+      # Initialization
+      # =========================
+      for p in self.parameters():
+          if p.dim() > 1:
+              nn.init.xavier_uniform_(p)
 
-
+      # =========================
+      # Optional checkpoint
+      # =========================
+      if checkpoint_path is not None:
+          state = torch.load(checkpoint_path, map_location="cpu")
+          self.load_state_dict(state)
     # ── AUTOGRADER HOOKS ── keep these signatures exactly ─────────────
 
     def encode(
@@ -698,7 +695,7 @@ class Transformer(nn.Module):
         device = next(self.parameters()).device
 
         # Tokenize source sentence       
-        tokens = self.src_tokenizer(src_sentence.lower())
+        tokens = (["<sos>"]+ self.src_tokenizer(src_sentence.lower())+ ["<eos>"])
         
         # convert to indices
         src_indices = [
