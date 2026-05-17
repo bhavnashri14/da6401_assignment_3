@@ -537,162 +537,51 @@ class Transformer(nn.Module):
     """
 
     def __init__(
-        self,
-        src_vocab_size: int = 10000,
-        tgt_vocab_size: int = 10000,
-        d_model:   int   = 512,
-        N:         int   = 6,
-        num_heads: int   = 8,
-        d_ff:      int   = 2048,
-        dropout:   float = 0.1,
-        checkpoint_path: str = None,
-    ) -> None:
+    self,
+    src_vocab_size: int = 10000,
+    tgt_vocab_size: int = 10000,
+    d_model: int = 512,
+    N: int = 6,
+    num_heads: int = 8,
+    d_ff: int = 2048,
+    dropout: float = 0.1,
+    checkpoint_path: str = None,
+) -> None:
         super().__init__()
-        self.src_vocab_size = src_vocab_size
-        self.tgt_vocab_size = tgt_vocab_size
+
         self.d_model = d_model
-        self.N = N
-        self.num_heads = num_heads
-        self.d_ff = d_ff
-        self.dropout = dropout
 
-        # Embeddings
-        self.src_embed = nn.Embedding(
-            len(self.src_vocab.stoi),
-            d_model
+        # embeddings
+        self.src_embed = nn.Embedding(src_vocab_size, d_model)
+        self.tgt_embed = nn.Embedding(tgt_vocab_size, d_model)
+
+        # positional encoding
+        self.pos_encoding = PositionalEncoding(d_model, dropout)
+
+        # encoder / decoder
+        self.encoder = Encoder(
+            EncoderLayer(d_model, num_heads, d_ff, dropout),
+            N
         )
 
-        self.tgt_embed = nn.Embedding(
-            len(self.tgt_vocab.stoi),
-            d_model
+        self.decoder = Decoder(
+            DecoderLayer(d_model, num_heads, d_ff, dropout),
+            N
         )
 
-        self.fc_out = nn.Linear(
-            d_model,
-            len(self.tgt_vocab.stoi)
-        )
-
-        # Positional Encoding
-        self.pos_encoding = PositionalEncoding(
-            d_model,
-            dropout
-        )
-
-        # Encoder
-        encoder_layer = EncoderLayer(
-            d_model,
-            num_heads,
-            d_ff,
-            dropout
-        )
-
-        self.encoder = Encoder(encoder_layer, N)
-
-        # Decoder
-        decoder_layer = DecoderLayer(
-            d_model,
-            num_heads,
-            d_ff,
-            dropout
-        )
-
-        self.decoder = Decoder(decoder_layer, N)
-
-        # Final projection
+        # output
         self.fc_out = nn.Linear(d_model, tgt_vocab_size)
 
         self.dropout = nn.Dropout(dropout)
 
-        # Xavier initialization
+        # init weights
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-        # =========================
-        # Tokenizers
-        # =========================
-        self.spacy_de = spacy.load("de_core_news_sm")
-        self.spacy_en = spacy.load("en_core_web_sm")
-
-        self.src_tokenizer = lambda text: [
-            tok.text.lower()
-            for tok in self.spacy_de.tokenizer(text)
-        ]
-
-        self.tgt_tokenizer = lambda text: [
-            tok.text.lower()
-            for tok in self.spacy_en.tokenizer(text)
-        ]
-
-        # =========================
-        # Build vocab
-        # =========================
-        dataset = load_dataset(
-            "bentrevett/multi30k",
-            split="train"
-        )
-
-        special_tokens = ["<unk>", "<pad>", "<sos>", "<eos>"]
-
-        src_counter = Counter()
-        tgt_counter = Counter()
-
-        for sample in dataset:
-
-            de_tokens = self.src_tokenizer(sample["de"])
-            en_tokens = self.tgt_tokenizer(sample["en"])
-
-            src_counter.update(de_tokens)
-            tgt_counter.update(en_tokens)
-
-        # vocab classes
-        class Vocab:
-            pass
-
-        self.src_vocab = Vocab()
-        self.tgt_vocab = Vocab()
-
-        self.src_vocab.stoi = {}
-        self.src_vocab.itos = {}
-
-        self.tgt_vocab.stoi = {}
-        self.tgt_vocab.itos = {}
-
-        # special tokens
-        for idx, tok in enumerate(special_tokens):
-
-            self.src_vocab.stoi[tok] = idx
-            self.src_vocab.itos[idx] = tok
-
-            self.tgt_vocab.stoi[tok] = idx
-            self.tgt_vocab.itos[idx] = tok
-
-        # source vocab
-        idx = len(special_tokens)
-
-        for word, freq in src_counter.items():
-
-            if freq >= 2:
-                self.src_vocab.stoi[word] = idx
-                self.src_vocab.itos[idx] = word
-                idx += 1
-
-        # target vocab
-        idx = len(special_tokens)
-
-        for word, freq in tgt_counter.items():
-
-            if freq >= 2:
-                self.tgt_vocab.stoi[word] = idx
-                self.tgt_vocab.itos[idx] = word
-                idx += 1
-        # init should also load the model weights if checkpoint path provided, download the .pth file like this
+        # optional checkpoint
         if checkpoint_path is not None:
-            gdown.download(id="<.pth drive id>", output=checkpoint_path, quiet=False)
-            self.load_state_dict(
-                torch.load(checkpoint_path)
-            )
-
+            self.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
 
     # ── AUTOGRADER HOOKS ── keep these signatures exactly ─────────────
 
