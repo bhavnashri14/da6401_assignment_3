@@ -578,6 +578,9 @@ class Transformer(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
+        
+        self.src_vocab = None
+        self.tgt_vocab = None
 
         # optional checkpoint
         if checkpoint_path is not None:
@@ -680,7 +683,7 @@ class Transformer(nn.Module):
         device = next(self.parameters()).device
 
         # Tokenize source sentence       
-        tokens = tokens = ["<sos>"] + src_sentence.lower().strip().split() + ["<eos>"]
+        tokens =  ["<sos>"] + src_sentence.lower().strip().split() + ["<eos>"]
         
         # convert to indices
         src_indices = [

@@ -445,6 +445,8 @@ def run_training_experiment() -> None:
         d_ff=config["d_ff"],
         dropout=config["dropout"],
     ).to(device)
+    model.src_vocab = src_vocab
+    model.tgt_vocab = tgt_vocab
 
     # Optimizer + Scheduler
     optimizer = torch.optim.Adam(
