@@ -556,6 +556,9 @@ class Transformer(nn.Module):
         self.num_heads = num_heads
         self.d_ff = d_ff
 
+        self.__dict__['src_vocab'] = None
+        self.__dict__['tgt_vocab'] = None
+
         # embeddings
         self.src_embed = nn.Embedding(src_vocab_size, d_model)
         self.tgt_embed = nn.Embedding(tgt_vocab_size, d_model)

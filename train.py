@@ -361,8 +361,10 @@ def load_checkpoint(
     """
     # TODO: implement restore logic
     checkpoint = torch.load(path, map_location="cpu")
-
     model.load_state_dict(checkpoint["model_state_dict"])
+
+    model.src_vocab = checkpoint["src_vocab"]
+    model.tgt_vocab = checkpoint["tgt_vocab"]
 
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
