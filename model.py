@@ -59,8 +59,7 @@ def scaled_dot_product_attention(
     """
     d_k = Q.size(-1)
 
-    scale = math.sqrt(d_k) if self.use_scale else 1.0
-    scores = torch.matmul(Q, K.transpose(-2, -1)) / scale
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
 
     if mask is not None:
         scores = scores.masked_fill(mask, float('-inf'))
@@ -230,17 +229,17 @@ class MultiHeadAttention(nn.Module):
         K = self.split_heads(K)
         V = self.split_heads(V)
 
-        # Attention
-        attn_output, attn_weights = scaled_dot_product_attention(
-            Q, K, V, mask
-        )
+        d_k = Q.size(-1)
+        scale = math.sqrt(d_k) if self.use_scale else 1.0
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / scale
+        if mask is not None:
+            scores = scores.masked_fill(mask, float('-inf'))
+        attn_weights = torch.softmax(scores, dim=-1)
+        attn_output  = torch.matmul(attn_weights, V)
 
-        # Combine heads
         concat_output = self.combine_heads(attn_output)
-
-        # Final linear layer
         output = self.W_o(concat_output)
-        output = self.dropout(output)   # dropout
+        output = self.dropout(output)
         return output
 
 
@@ -554,6 +553,7 @@ class Transformer(nn.Module):
     num_heads: int = 8,
     d_ff: int = 2048,
     dropout: float = 0.1,
+    pos_encoding_type="sinusoidal",
     checkpoint_path: str = None,
 ) -> None:
         super().__init__()
@@ -573,7 +573,10 @@ class Transformer(nn.Module):
         self.tgt_embed = nn.Embedding(tgt_vocab_size, d_model)
 
         # positional encoding
-        self.pos_encoding = PositionalEncoding(d_model, dropout)
+        if pos_encoding_type == "learned":
+            self.pos_encoding = LearnedPositionalEncoding(d_model, dropout)
+        else:
+            self.pos_encoding = PositionalEncoding(d_model, dropout)
 
         # encoder / decoder
         self.encoder = Encoder(

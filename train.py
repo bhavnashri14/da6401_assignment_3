@@ -600,14 +600,16 @@ def run_training_experiment() -> None:
         optimizer = make_optimizer(model)
         scheduler = NoamScheduler(optimizer, d_model=512, warmup_steps=4000)
         loss_fn   = LabelSmoothingLoss(len(tgt_vocab), pad_idx, smoothing=0.1)
-        train_loader, val_loader, test_loader = make_loaders(batch_size=1)
+        train_loader, val_loader, test_loader = make_loaders(batch_size=64)
+        val_loader_single = DataLoader(val_data, batch_size=1,
+                               collate_fn=lambda b: collate_fn(b, pad_idx))
 
         for epoch in range(EPOCHS):
-            run_epoch(train_loader, val_loader, model, loss_fn,
+            run_epoch(train_loader, model, loss_fn,
                       optimizer, scheduler, epoch,
                       is_train=True, device=device)
 
-            bleu = evaluate_bleu(model, val_loader, tgt_vocab, device=device)
+            bleu = evaluate_bleu(model, val_loader_single, tgt_vocab, device=device)
             wandb.log({"val_bleu": bleu, "epoch": epoch})
             print(f"[2.4|{pe_type}] Epoch {epoch} | Val BLEU {bleu:.2f}")
 
