@@ -84,6 +84,8 @@ class Multi30kDataset:
 
             de_tokens = self.tokenize_de(sample["de"])
             en_tokens = self.tokenize_en(sample["en"])
+            de_counter.update(de_tokens)   # ← ADD THESE TWO
+            en_counter.update(en_tokens)
         src_stoi = {}
         src_itos = {}
         for idx, token in enumerate(self.special_tokens):
