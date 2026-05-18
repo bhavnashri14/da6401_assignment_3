@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from typing import Optional
 import math
 from nltk.translate.bleu_score import corpus_bleu
-from model import Transformer, make_src_mask, make_tgt_mask
+from model import Transformer, make_src_mask, make_tgt_mask, MultiHeadAttention
 from dataset import Multi30kDataset, collate_fn
 
 
@@ -360,7 +360,7 @@ def load_checkpoint(
 
     """
     # TODO: implement restore logic
-    checkpoint = torch.load(path, map_location="cpu")
+    checkpoint = torch.load(path, map_location="cpu",weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     model.src_vocab = checkpoint["src_vocab"]
@@ -406,7 +406,7 @@ def run_training_experiment() -> None:
     import math
     import matplotlib.pyplot as plt
     from functools import partial
-    from noam_lr_scheduler import NoamScheduler
+    from lr_scheduler import NoamScheduler
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -464,15 +464,18 @@ def run_training_experiment() -> None:
     print("\n=== EXP 2.1: Noam vs Fixed LR ===")
 
     for use_noam in [True, False]:
-        run_name = "2.1_noam_scheduler" if use_noam else "2.1_fixed_lr_1e4"
-        wandb.init(project="da6401-a3", name=run_name, reinit=True)
+        run_name = "2.1_noam_scheduler_1" if use_noam else "2.1_fixed_lr_1e4_1"
+        wandb.init(project="ASSIGNMENT 3", name=run_name, reinit=True)
 
         model     = make_model()
         optimizer = make_optimizer(model, lr=1.0 if use_noam else 1e-4)
         scheduler = NoamScheduler(optimizer, d_model=512, warmup_steps=4000) if use_noam else None
         loss_fn   = LabelSmoothingLoss(len(tgt_vocab), pad_idx, smoothing=0.1)
         train_loader, val_loader, _ = make_loaders()
-
+        val_loader_single = DataLoader(
+            val_data, batch_size=1,
+            collate_fn=lambda b: collate_fn(b, pad_idx)
+        )
         for epoch in range(EPOCHS):
             train_loss = run_epoch(train_loader, model, loss_fn,
                                    optimizer, scheduler, epoch,
@@ -480,9 +483,20 @@ def run_training_experiment() -> None:
             val_loss   = run_epoch(val_loader, model, loss_fn,
                                    None, None, epoch,
                                    is_train=False, device=device)
-            wandb.log({"train_loss": train_loss, "val_loss": val_loss, "epoch": epoch})
-            print(f"[2.1|{run_name}] Epoch {epoch} | Train {train_loss:.4f} | Val {val_loss:.4f}")
-
+            
+            val_bleu = evaluate_bleu(model, val_loader_single, tgt_vocab, device=device)
+            current_lr = optimizer.param_groups[0]["lr"]
+            wandb.log({
+                "train_loss": train_loss,
+                "val_loss":   val_loss,
+                "val_bleu":   val_bleu,
+                "learning_rate": current_lr,
+                "epoch":      epoch
+            })
+            print(f"[2.1|{run_name}] Epoch {epoch} | Train {train_loss:.4f} | Val {val_loss:.4f} | BLEU {val_bleu:.2f}")
+            
+            save_checkpoint(model, optimizer, scheduler, epoch,
+            path=f"/content/drive/MyDrive/da6401_assignment_3/ckpt_2.1_{run_name}_epoch{epoch}.pt")
         wandb.finish()
 
     # ══════════════════════════════════════════════════════════════════
@@ -492,7 +506,7 @@ def run_training_experiment() -> None:
 
     for use_scale in [True, False]:
         run_name = "2.2_with_scaling" if use_scale else "2.2_without_scaling"
-        wandb.init(project="da6401-a3", name=run_name, reinit=True)
+        wandb.init(project="ASSIGNMENT 3", name=run_name, reinit=True)
 
         model     = make_model()
         # patch all MHA layers to use/skip scale
@@ -524,7 +538,6 @@ def run_training_experiment() -> None:
             grad_k = model.encoder.layers[0].self_attn.W_k.weight.grad.norm().item()
 
             wandb.log({"step": step, "grad_norm_Q": grad_q, "grad_norm_K": grad_k, "loss": loss.item()})
-
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
@@ -537,16 +550,16 @@ def run_training_experiment() -> None:
     # ══════════════════════════════════════════════════════════════════
     print("\n=== EXP 2.3: Attention Heatmaps ===")
 
-    wandb.init(project="da6401-a3", name="2.3_attention_heatmaps", reinit=True)
+    wandb.init(project="ASSIGNMENT 3", name="2.3_attention_heatmaps", reinit=True)
 
     # load best model (noam run checkpoint)
     model = make_model()
-    load_checkpoint("checkpoint.pt", model)
+    load_checkpoint("/content/drive/MyDrive/da6401_assignment_3/ckpt_2.1_2.1_noam_scheduler_1_epoch9.pt", model)
     model.eval()
 
     import spacy
     spacy_de   = spacy.load("de_core_news_sm")
-    sentence   = "Ein Mann sitzt auf einer Bank."
+    sentence   = "Ein Mann mit einem roten Hut spielt Gitarre"
     tokens     = ["<sos>"] + [t.text.lower() for t in spacy_de.tokenizer(sentence)] + ["<eos>"]
     src_ids    = [src_vocab.stoi.get(t, src_vocab.stoi["<unk>"]) for t in tokens]
     src        = torch.tensor([src_ids], dtype=torch.long, device=device)
@@ -567,6 +580,7 @@ def run_training_experiment() -> None:
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(last.self_attn.d_k)
         scores = scores.masked_fill(src_mask, float('-inf'))
         attn_w = torch.softmax(scores, dim=-1)  # [1, num_heads, src_len, src_len]
+        attn_w = torch.nan_to_num(attn_w, nan=0.0)
 
     num_heads = attn_w.size(1)
     fig, axes = plt.subplots(2, num_heads // 2, figsize=(24, 8))
@@ -585,6 +599,18 @@ def run_training_experiment() -> None:
     plt.tight_layout()
     wandb.log({"attention_heads_last_encoder_layer": wandb.Image(fig)})
     plt.close()
+    for h in range(num_heads):
+      fig_h, ax_h = plt.subplots(figsize=(6, 5))
+      w = attn_w[0, h].cpu().numpy()
+      ax_h.imshow(w, cmap="viridis")
+      ax_h.set_title(f"Head {h+1}")
+      ax_h.set_xticks(range(len(tokens)))
+      ax_h.set_yticks(range(len(tokens)))
+      ax_h.set_xticklabels(tokens, rotation=90, fontsize=8)
+      ax_h.set_yticklabels(tokens, fontsize=8)
+      plt.tight_layout()
+      wandb.log({f"head_{h+1}": wandb.Image(fig_h)})
+    plt.close(fig_h)
     wandb.finish()
 
     # ══════════════════════════════════════════════════════════════════
@@ -594,7 +620,7 @@ def run_training_experiment() -> None:
 
     for pe_type in ["sinusoidal", "learned"]:
         run_name = f"2.4_pe_{pe_type}"
-        wandb.init(project="da6401-a3", name=run_name, reinit=True)
+        wandb.init(project="ASSIGNMENT 3", name=run_name, reinit=True)
 
         model     = make_model(pos_encoding_type=pe_type)
         optimizer = make_optimizer(model)
@@ -613,6 +639,9 @@ def run_training_experiment() -> None:
             wandb.log({"val_bleu": bleu, "epoch": epoch})
             print(f"[2.4|{pe_type}] Epoch {epoch} | Val BLEU {bleu:.2f}")
 
+            save_checkpoint(model, optimizer, scheduler, epoch,
+                path=f"/content/drive/MyDrive/da6401_assignment_3/ckpt_2.4_{pe_type}_epoch{epoch}.pt")
+
         wandb.finish()
 
     # ══════════════════════════════════════════════════════════════════
@@ -622,7 +651,7 @@ def run_training_experiment() -> None:
 
     for smoothing in [0.1, 0.0]:
         run_name = f"2.5_smoothing_{smoothing}"
-        wandb.init(project="da6401-a3", name=run_name, reinit=True)
+        wandb.init(project="ASSIGNMENT 3", name=run_name, reinit=True)
 
         model     = make_model()
         optimizer = make_optimizer(model)
@@ -675,6 +704,10 @@ def run_training_experiment() -> None:
                 "prediction_confidence": total_confidence / n_batches,
                 "epoch":                 epoch,
             })
+            save_checkpoint(
+              model, optimizer, scheduler, epoch,
+              path=f"/content/drive/MyDrive/da6401_assignment_3/ckpt_2.5_smooth{smoothing}_epoch{epoch}.pt"
+          )
             print(f"[2.5|smoothing={smoothing}] Epoch {epoch} | "
                   f"Train {total_loss/n_batches:.4f} | "
                   f"Confidence {total_confidence/n_batches:.4f}")

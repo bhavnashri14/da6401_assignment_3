@@ -26,7 +26,9 @@ import torch.nn.functional as F
 
 import spacy
 from collections import Counter
-from datasets import load_dataset
+from datasets import load_dataset, Multi30kDataset
+import gdown 
+import os
 # ══════════════════════════════════════════════════════════════════════
 #   STANDALONE ATTENTION FUNCTION  
 #    Exposed at module level so the autograder can import and test it
@@ -565,12 +567,19 @@ class Transformer(nn.Module):
         self.num_heads = num_heads
         self.d_ff = d_ff
 
-        self.src_vocab = None
-        self.tgt_vocab = None
+        dataset = Multi30kDataset(split="train")
+
+        self.src_vocab = dataset.src_vocab
+        self.tgt_vocab = dataset.tgt_vocab
+
+        self.src_vocab_size = len(self.src_vocab)
+        self.tgt_vocab_size = len(self.tgt_vocab)
 
         # embeddings
         self.src_embed = nn.Embedding(src_vocab_size, d_model)
         self.tgt_embed = nn.Embedding(tgt_vocab_size, d_model)
+
+        self.spacy_de = spacy.load("de_core_news_sm")
 
         # positional encoding
         if pos_encoding_type == "learned":
@@ -598,11 +607,20 @@ class Transformer(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
-      
 
-        # optional checkpoint
-        if checkpoint_path is not None:
-            self.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+        self.checkpoint_path = "model.pt"
+        gdrive_id = "1R69qLCWe2YtTRT6Qz28RyyJV6aRsKHzx"
+
+        if not os.path.exists(self.checkpoint_path):
+            gdown.download(
+                f"https://drive.google.com/uc?id={gdrive_id}",
+                self.checkpoint_path,
+                quiet=False
+            )
+
+        if os.path.exists(self.checkpoint_path):
+          state = torch.load(self.checkpoint_path, map_location="cpu")
+          self.load_state_dict(state)
 
     # ── AUTOGRADER HOOKS ── keep these signatures exactly ─────────────
 
