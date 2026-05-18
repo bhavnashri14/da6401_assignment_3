@@ -568,13 +568,9 @@ class Transformer(nn.Module):
         self.num_heads = num_heads
         self.d_ff = d_ff
 
-        dataset = load_dataset("multi30k", split="train")
+        self.src_vocab_size = src_vocab_size
+        self.tgt_vocab_size = tgt_vocab_size
 
-        self.src_vocab = dataset.src_vocab
-        self.tgt_vocab = dataset.tgt_vocab
-
-        self.src_vocab_size = len(self.src_vocab)
-        self.tgt_vocab_size = len(self.tgt_vocab)
 
         # embeddings
         self.src_embed = nn.Embedding(self.src_vocab_size, d_model)
