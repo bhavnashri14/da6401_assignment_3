@@ -26,7 +26,7 @@ import torch.nn.functional as F
 
 import spacy
 from collections import Counter
-from datasets import load_dataset, Multi30kDataset
+from datasets import load_dataset
 import gdown 
 import os
 # ══════════════════════════════════════════════════════════════════════
@@ -568,7 +568,7 @@ class Transformer(nn.Module):
         self.num_heads = num_heads
         self.d_ff = d_ff
 
-        dataset = Multi30kDataset(split="train")
+        dataset = load_dataset("multi30k", split="train")
 
         self.src_vocab = dataset.src_vocab
         self.tgt_vocab = dataset.tgt_vocab
