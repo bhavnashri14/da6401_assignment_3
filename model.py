@@ -559,7 +559,8 @@ class Transformer(nn.Module):
     checkpoint_path: str = None,
 ) -> None:
         super().__init__()
-
+        self.src_vocab = None
+        self.tgt_vocab = None
         self.d_model = d_model
         self.src_vocab_size = src_vocab_size
         self.tgt_vocab_size = tgt_vocab_size
@@ -576,8 +577,8 @@ class Transformer(nn.Module):
         self.tgt_vocab_size = len(self.tgt_vocab)
 
         # embeddings
-        self.src_embed = nn.Embedding(src_vocab_size, d_model)
-        self.tgt_embed = nn.Embedding(tgt_vocab_size, d_model)
+        self.src_embed = nn.Embedding(self.src_vocab_size, d_model)
+        self.tgt_embed = nn.Embedding(self.tgt_vocab_size, d_model)
 
         self.spacy_de = spacy.load("de_core_news_sm")
 
@@ -620,7 +621,7 @@ class Transformer(nn.Module):
 
         if os.path.exists(self.checkpoint_path):
           state = torch.load(self.checkpoint_path, map_location="cpu")
-          self.load_state_dict(state)
+          self.load_state_dict(state, strict=False)
 
     # ── AUTOGRADER HOOKS ── keep these signatures exactly ─────────────
 
@@ -707,14 +708,6 @@ class Transformer(nn.Module):
     def infer(self, src_sentence: str) -> str:
       self.eval()
       device = next(self.parameters()).device
-
-      if self.src_vocab is None or self.tgt_vocab is None:
-          raise ValueError(
-              "Vocabulary not attached to model. "
-              "Set model.src_vocab and model.tgt_vocab before inference."
-          )
-
-      self.spacy_de = spacy.load("de_core_news_sm")
 
       tokens = ["<sos>"] + [t.text.lower() for t in self.spacy_de.tokenizer(src_sentence.strip())] + ["<eos>"]
 
