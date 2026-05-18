@@ -233,15 +233,12 @@ class MultiHeadAttention(nn.Module):
             Q, K, V, mask
         )
 
-        # Dropout
-        attn_output = self.dropout(attn_output)
-
         # Combine heads
         concat_output = self.combine_heads(attn_output)
 
         # Final linear layer
         output = self.W_o(concat_output)
-
+        output = self.dropout(output)   # dropout
         return output
 
 
@@ -556,8 +553,8 @@ class Transformer(nn.Module):
         self.num_heads = num_heads
         self.d_ff = d_ff
 
-        self.__dict__['src_vocab'] = None
-        self.__dict__['tgt_vocab'] = None
+        self.src_vocab = None
+        self.tgt_vocab = None
 
         # embeddings
         self.src_embed = nn.Embedding(src_vocab_size, d_model)
@@ -684,7 +681,9 @@ class Transformer(nn.Module):
               "Set model.src_vocab and model.tgt_vocab before inference."
           )
 
-      tokens = ["<sos>"] + src_sentence.lower().strip().split() + ["<eos>"]
+      self.spacy_de = spacy.load("de_core_news_sm")
+
+      tokens = ["<sos>"] + [t.text.lower() for t in self.spacy_de.tokenizer(src_sentence.strip())] + ["<eos>"]
 
       src_indices = [
           self.src_vocab.stoi.get(tok, self.src_vocab.stoi["<unk>"])

@@ -6,7 +6,6 @@ from torch.nn.utils.rnn import pad_sequence
 from datasets import load_dataset
 import spacy
 
-from torch.nn.utils.rnn import pad_sequence
 
 class Vocab:
     def __init__(self, stoi, itos):
@@ -52,9 +51,7 @@ class Multi30kDataset:
         # Build vocabulary only from train split
         if split == "train":
             self.build_vocab()
-
-        # Process sentences
-        self.process_data()
+            self.process_data()
         # Load dataset from Hugging Face
         # https://huggingface.co/datasets/bentrevett/multi30k
         # TODO: Load dataset, load spacy tokenizers for de and en
@@ -173,7 +170,7 @@ class Multi30kDataset:
 
         return self.data[idx]
 
-def collate_fn(batch, pad_idx=1):
+def collate_fn(batch, pad_idx):
     src_batch, tgt_batch = zip(*batch)
     src_padded = pad_sequence(src_batch, batch_first=True, padding_value=pad_idx)
     tgt_padded = pad_sequence(tgt_batch, batch_first=True, padding_value=pad_idx)

@@ -363,9 +363,8 @@ def load_checkpoint(
     checkpoint = torch.load(path, map_location="cpu")
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    model.__dict__['src_vocab'] = checkpoint["src_vocab"]
-    model.__dict__['tgt_vocab'] = checkpoint["tgt_vocab"]
-
+    model.src_vocab = checkpoint["src_vocab"]
+    model.tgt_vocab = checkpoint["tgt_vocab"]
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
@@ -430,7 +429,7 @@ def run_training_experiment() -> None:
     src_vocab  = train_data.src_vocab
     tgt_vocab  = train_data.tgt_vocab
 
-    val_data  = Multi30kDataset(split="valid")
+    val_data  = Multi30kDataset(split="validation")
     val_data.set_vocab(src_vocab, tgt_vocab)
     val_data.process_data()
 
