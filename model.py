@@ -59,7 +59,8 @@ def scaled_dot_product_attention(
     """
     d_k = Q.size(-1)
 
-    scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
+    scale = math.sqrt(d_k) if self.use_scale else 1.0
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / scale
 
     if mask is not None:
         scores = scores.masked_fill(mask, float('-inf'))
@@ -155,6 +156,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, d_model: int, num_heads: int, dropout: float = 0.1) -> None:
         super().__init__()
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        self.use_scale = True
 
         self.d_model   = d_model
         self.num_heads = num_heads
@@ -287,6 +289,16 @@ class PositionalEncoding(nn.Module):
         seq_len = x.size(1)
         x = x + self.pe[:, :seq_len, :]  # add positional encoding
         return self.dropout(x)
+
+# Add LearnedPositionalEncoding class to model.py:
+class LearnedPositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super().__init__()
+        self.dropout    = nn.Dropout(p=dropout)
+        self.pos_embed  = nn.Embedding(max_len, d_model)
+    def forward(self, x):
+        positions = torch.arange(x.size(1), device=x.device).unsqueeze(0)
+        return self.dropout(x + self.pos_embed(positions))
 
 
 # ══════════════════════════════════════════════════════════════════════

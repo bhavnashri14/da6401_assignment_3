@@ -403,29 +403,15 @@ def run_training_experiment() -> None:
     """
     # TODO: implement full experiment
     import wandb
-    from dataset import Multi30kDataset   # assuming your dataset file
-    from torch.utils.data import DataLoader
-    from lr_scheduler import NoamScheduler  # if separate file
+    import math
+    import matplotlib.pyplot as plt
+    from functools import partial
+    from noam_lr_scheduler import NoamScheduler
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # W&B init
-    config = {
-        "d_model": 512,
-        "N": 6,
-        "num_heads": 8,
-        "d_ff": 2048,
-        "dropout": 0.1,
-        "warmup_steps": 4000,
-        "lr": 1.0,
-        "batch_size": 64,
-        "epochs": 10,
-    }
-
-    wandb.init(project="da6401-a3", config=config)
-
-    # Dataset + vocab
-    train_data = Multi30kDataset(split="train")   # build_vocab called inside
+    # ── shared dataset setup ──────────────────────────────────────────
+    train_data = Multi30kDataset(split="train")
     src_vocab  = train_data.src_vocab
     tgt_vocab  = train_data.tgt_vocab
 
@@ -439,102 +425,260 @@ def run_training_experiment() -> None:
 
     pad_idx = src_vocab.stoi["<pad>"]
 
-    train_loader = DataLoader(train_data, batch_size=config["batch_size"], shuffle=True,
-                              collate_fn=lambda b: collate_fn(b, pad_idx))
-    val_loader   = DataLoader(val_data, batch_size=config["batch_size"],
-                              collate_fn=lambda b: collate_fn(b, pad_idx))
-    test_loader  = DataLoader(test_data, batch_size=1,
-                              collate_fn=lambda b: collate_fn(b, pad_idx))
+    def make_loaders(batch_size=64):
+        train_loader = DataLoader(
+            train_data, batch_size=batch_size, shuffle=True,
+            collate_fn=lambda b: collate_fn(b, pad_idx)
+        )
+        val_loader = DataLoader(
+            val_data, batch_size=batch_size,
+            collate_fn=lambda b: collate_fn(b, pad_idx)
+        )
+        test_loader = DataLoader(
+            test_data, batch_size=1,
+            collate_fn=lambda b: collate_fn(b, pad_idx)
+        )
+        return train_loader, val_loader, test_loader
 
+    def make_model(pos_encoding_type="sinusoidal"):
+        m = Transformer(
+            src_vocab_size=len(src_vocab),
+            tgt_vocab_size=len(tgt_vocab),
+            d_model=512, N=6, num_heads=8, d_ff=2048, dropout=0.1,
+            pos_encoding_type=pos_encoding_type,
+        ).to(device)
+        m.src_vocab = src_vocab
+        m.tgt_vocab = tgt_vocab
+        return m
 
-    
-
-    # Model
-    model = Transformer(
-        src_vocab_size=len(src_vocab),
-        tgt_vocab_size=len(tgt_vocab),
-        d_model=config["d_model"],
-        N=config["N"],
-        num_heads=config["num_heads"],
-        d_ff=config["d_ff"],
-        dropout=config["dropout"],
-    ).to(device)
-    model.__dict__['src_vocab'] = src_vocab
-    model.__dict__['tgt_vocab'] = tgt_vocab
-
-    # Optimizer + Scheduler
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config["lr"],
-        betas=(0.9, 0.98),
-        eps=1e-9
-    )
-
-    scheduler = NoamScheduler(
-        optimizer,
-        d_model=config["d_model"],
-        warmup_steps=config["warmup_steps"]
-    )
-    # Loss
-    loss_fn = LabelSmoothingLoss(
-        vocab_size=len(tgt_vocab),
-        pad_idx=tgt_vocab.stoi["<pad>"],
-        smoothing=0.1
-    )
-
-    #Training loop
-    for epoch in range(config["epochs"]):
-
-        train_loss = run_epoch(
-            train_loader,
-            model,
-            loss_fn,
-            optimizer,
-            scheduler,
-            epoch,
-            is_train=True,
-            device=device
+    def make_optimizer(model, lr=1.0):
+        return torch.optim.Adam(
+            model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9
         )
 
-        val_loss = run_epoch(
-            val_loader,
-            model,
-            loss_fn,
-            None,
-            None,
-            epoch,
-            is_train=False,
-            device=device
-        )
+    EPOCHS = 10
 
-        print(f"Epoch {epoch} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+    # ══════════════════════════════════════════════════════════════════
+    # EXP 2.1 — Noam Scheduler vs Fixed LR
+    # ══════════════════════════════════════════════════════════════════
+    print("\n=== EXP 2.1: Noam vs Fixed LR ===")
 
-        wandb.log({
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-            "epoch": epoch
-        })
+    for use_noam in [True, False]:
+        run_name = "2.1_noam_scheduler" if use_noam else "2.1_fixed_lr_1e4"
+        wandb.init(project="da6401-a3", name=run_name, reinit=True)
 
-        save_checkpoint(
-            model,
-            optimizer,
-            scheduler,
-            epoch,
-            path="checkpoint.pt"
-        )
+        model     = make_model()
+        optimizer = make_optimizer(model, lr=1.0 if use_noam else 1e-4)
+        scheduler = NoamScheduler(optimizer, d_model=512, warmup_steps=4000) if use_noam else None
+        loss_fn   = LabelSmoothingLoss(len(tgt_vocab), pad_idx, smoothing=0.1)
+        train_loader, val_loader, _ = make_loaders()
 
-    # 7. Final BLEU evaluation
-    
-    bleu = evaluate_bleu(
-        model,
-        test_loader,
-        tgt_vocab,
-        device=device
-    )
+        for epoch in range(EPOCHS):
+            train_loss = run_epoch(train_loader, model, loss_fn,
+                                   optimizer, scheduler, epoch,
+                                   is_train=True, device=device)
+            val_loss   = run_epoch(val_loader, model, loss_fn,
+                                   None, None, epoch,
+                                   is_train=False, device=device)
+            wandb.log({"train_loss": train_loss, "val_loss": val_loss, "epoch": epoch})
+            print(f"[2.1|{run_name}] Epoch {epoch} | Train {train_loss:.4f} | Val {val_loss:.4f}")
 
-    print(f"\nFinal Test BLEU: {bleu:.2f}")
+        wandb.finish()
 
-    wandb.log({"test_bleu": bleu})
+    # ══════════════════════════════════════════════════════════════════
+    # EXP 2.2 — With vs Without Scaling Factor sqrt(1/dk)
+    # ══════════════════════════════════════════════════════════════════
+    print("\n=== EXP 2.2: With vs Without Scaling ===")
+
+    for use_scale in [True, False]:
+        run_name = "2.2_with_scaling" if use_scale else "2.2_without_scaling"
+        wandb.init(project="da6401-a3", name=run_name, reinit=True)
+
+        model     = make_model()
+        # patch all MHA layers to use/skip scale
+        for module in model.modules():
+            if isinstance(module, MultiHeadAttention):
+                module.use_scale = use_scale
+
+        optimizer = make_optimizer(model)
+        scheduler = NoamScheduler(optimizer, d_model=512, warmup_steps=4000)
+        loss_fn   = LabelSmoothingLoss(len(tgt_vocab), pad_idx, smoothing=0.1)
+        train_loader, _, _ = make_loaders()
+
+        # only run 1000 steps to log gradient norms
+        model.train()
+        step = 0
+        for src, tgt in train_loader:
+            if step >= 1000:
+                break
+            src, tgt   = src.to(device), tgt.to(device)
+            tgt_in     = tgt[:, :-1]
+            tgt_out    = tgt[:, 1:]
+            logits     = model(src, tgt_in, make_src_mask(src), make_tgt_mask(tgt_in))
+            loss       = loss_fn(logits.reshape(-1, logits.size(-1)), tgt_out.reshape(-1))
+
+            optimizer.zero_grad()
+            loss.backward()
+
+            grad_q = model.encoder.layers[0].self_attn.W_q.weight.grad.norm().item()
+            grad_k = model.encoder.layers[0].self_attn.W_k.weight.grad.norm().item()
+
+            wandb.log({"step": step, "grad_norm_Q": grad_q, "grad_norm_K": grad_k, "loss": loss.item()})
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            scheduler.step()
+            step += 1
+
+        wandb.finish()
+
+    # ══════════════════════════════════════════════════════════════════
+    # EXP 2.3 — Attention Heatmaps (uses best checkpoint from 2.1 noam run)
+    # ══════════════════════════════════════════════════════════════════
+    print("\n=== EXP 2.3: Attention Heatmaps ===")
+
+    wandb.init(project="da6401-a3", name="2.3_attention_heatmaps", reinit=True)
+
+    # load best model (noam run checkpoint)
+    model = make_model()
+    load_checkpoint("checkpoint.pt", model)
+    model.eval()
+
+    import spacy
+    spacy_de   = spacy.load("de_core_news_sm")
+    sentence   = "Ein Mann sitzt auf einer Bank."
+    tokens     = ["<sos>"] + [t.text.lower() for t in spacy_de.tokenizer(sentence)] + ["<eos>"]
+    src_ids    = [src_vocab.stoi.get(t, src_vocab.stoi["<unk>"]) for t in tokens]
+    src        = torch.tensor([src_ids], dtype=torch.long, device=device)
+    src_mask   = make_src_mask(src)
+
+    with torch.no_grad():
+        x = model.src_embed(src) * math.sqrt(model.d_model)
+        x = model.pos_encoding(x)
+
+        # pass through all encoder layers except last
+        for layer in model.encoder.layers[:-1]:
+            x = layer(x, src_mask)
+
+        # manually extract attention weights from last encoder layer
+        last = model.encoder.layers[-1]
+        Q = last.self_attn.split_heads(last.self_attn.W_q(x))
+        K = last.self_attn.split_heads(last.self_attn.W_k(x))
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(last.self_attn.d_k)
+        scores = scores.masked_fill(src_mask, float('-inf'))
+        attn_w = torch.softmax(scores, dim=-1)  # [1, num_heads, src_len, src_len]
+
+    num_heads = attn_w.size(1)
+    fig, axes = plt.subplots(2, num_heads // 2, figsize=(24, 8))
+    axes = axes.flatten()
+
+    for h in range(num_heads):
+        ax  = axes[h]
+        w   = attn_w[0, h].cpu().numpy()
+        ax.imshow(w, cmap="viridis")
+        ax.set_title(f"Head {h+1}")
+        ax.set_xticks(range(len(tokens)))
+        ax.set_yticks(range(len(tokens)))
+        ax.set_xticklabels(tokens, rotation=90, fontsize=7)
+        ax.set_yticklabels(tokens, fontsize=7)
+
+    plt.tight_layout()
+    wandb.log({"attention_heads_last_encoder_layer": wandb.Image(fig)})
+    plt.close()
+    wandb.finish()
+
+    # ══════════════════════════════════════════════════════════════════
+    # EXP 2.4 — Sinusoidal PE vs Learned PE
+    # ══════════════════════════════════════════════════════════════════
+    print("\n=== EXP 2.4: Sinusoidal vs Learned PE ===")
+
+    for pe_type in ["sinusoidal", "learned"]:
+        run_name = f"2.4_pe_{pe_type}"
+        wandb.init(project="da6401-a3", name=run_name, reinit=True)
+
+        model     = make_model(pos_encoding_type=pe_type)
+        optimizer = make_optimizer(model)
+        scheduler = NoamScheduler(optimizer, d_model=512, warmup_steps=4000)
+        loss_fn   = LabelSmoothingLoss(len(tgt_vocab), pad_idx, smoothing=0.1)
+        train_loader, val_loader, test_loader = make_loaders(batch_size=1)
+
+        for epoch in range(EPOCHS):
+            run_epoch(train_loader, val_loader, model, loss_fn,
+                      optimizer, scheduler, epoch,
+                      is_train=True, device=device)
+
+            bleu = evaluate_bleu(model, val_loader, tgt_vocab, device=device)
+            wandb.log({"val_bleu": bleu, "epoch": epoch})
+            print(f"[2.4|{pe_type}] Epoch {epoch} | Val BLEU {bleu:.2f}")
+
+        wandb.finish()
+
+    # ══════════════════════════════════════════════════════════════════
+    # EXP 2.5 — Label Smoothing 0.1 vs 0.0
+    # ══════════════════════════════════════════════════════════════════
+    print("\n=== EXP 2.5: Label Smoothing ===")
+
+    for smoothing in [0.1, 0.0]:
+        run_name = f"2.5_smoothing_{smoothing}"
+        wandb.init(project="da6401-a3", name=run_name, reinit=True)
+
+        model     = make_model()
+        optimizer = make_optimizer(model)
+        scheduler = NoamScheduler(optimizer, d_model=512, warmup_steps=4000)
+        loss_fn   = LabelSmoothingLoss(len(tgt_vocab), pad_idx, smoothing=smoothing)
+        train_loader, val_loader, _ = make_loaders()
+
+        for epoch in range(EPOCHS):
+            model.train()
+            total_loss       = 0.0
+            total_confidence = 0.0
+            n_batches        = 0
+
+            for src, tgt in train_loader:
+                src, tgt = src.to(device), tgt.to(device)
+                tgt_in   = tgt[:, :-1]
+                tgt_out  = tgt[:, 1:]
+
+                logits      = model(src, tgt_in, make_src_mask(src), make_tgt_mask(tgt_in))
+                flat_logits = logits.reshape(-1, logits.size(-1))
+                flat_tgt    = tgt_out.reshape(-1)
+
+                loss = loss_fn(flat_logits, flat_tgt)
+
+                # prediction confidence = mean softmax prob of correct token
+                with torch.no_grad():
+                    probs     = torch.softmax(flat_logits, dim=-1)
+                    non_pad   = flat_tgt != pad_idx
+                    confidence = probs[non_pad].gather(
+                        1, flat_tgt[non_pad].unsqueeze(1)
+                    ).squeeze(1).mean().item()
+                    total_confidence += confidence
+
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
+
+                total_loss += loss.item()
+                n_batches  += 1
+
+            val_loss = run_epoch(val_loader, model, loss_fn,
+                                 None, None, epoch,
+                                 is_train=False, device=device)
+
+            wandb.log({
+                "train_loss":            total_loss / n_batches,
+                "val_loss":              val_loss,
+                "prediction_confidence": total_confidence / n_batches,
+                "epoch":                 epoch,
+            })
+            print(f"[2.5|smoothing={smoothing}] Epoch {epoch} | "
+                  f"Train {total_loss/n_batches:.4f} | "
+                  f"Confidence {total_confidence/n_batches:.4f}")
+
+        wandb.finish()
+
 
 
 if __name__ == "__main__":
