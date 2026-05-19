@@ -609,18 +609,18 @@ class Transformer(nn.Module):
 
             self.spacy_de = spacy.load("de_core_news_sm")
 
-            if pos_encoding_type == "learned":
-                self.pos_encoding = LearnedPositionalEncoding(
+        if pos_encoding_type == "learned":
+            self.pos_encoding = LearnedPositionalEncoding(
                     d_model,
                     dropout
                 )
-            else:
-                self.pos_encoding = PositionalEncoding(
+        else:
+            self.pos_encoding = PositionalEncoding(
                     d_model,
                     dropout
                 )
 
-            self.encoder = Encoder(
+        self.encoder = Encoder(
                     EncoderLayer(
                         d_model,
                         num_heads,
@@ -630,7 +630,7 @@ class Transformer(nn.Module):
                     N
                 )
             
-            self.decoder = Decoder(
+        self.decoder = Decoder(
                   DecoderLayer(
                       d_model,
                       num_heads,
@@ -640,16 +640,16 @@ class Transformer(nn.Module):
                   N
               )
 
-            self.fc_out = nn.Linear(
+        self.fc_out = nn.Linear(
                             d_model,
                             self.tgt_vocab_size
                         )
 
-            self.dropout = nn.Dropout(dropout)
-            for p in self.parameters():
+        self.dropout = nn.Dropout(dropout)
+        for p in self.parameters():
                 if p.dim() > 1:
                     nn.init.xavier_uniform_(p)
-            self.load_state_dict(state["model_state_dict"])
+        self.load_state_dict(state["model_state_dict"])
 
     # ── AUTOGRADER HOOKS ── keep these signatures exactly ─────────────
 
