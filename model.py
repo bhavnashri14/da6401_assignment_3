@@ -576,7 +576,12 @@ class Transformer(nn.Module):
         self.src_embed = nn.Embedding(self.src_vocab_size, d_model)
         self.tgt_embed = nn.Embedding(self.tgt_vocab_size, d_model)
 
-        self.spacy_de = spacy.load("de_core_news_sm")
+        import subprocess
+        try:
+            self.spacy_de = spacy.load("de_core_news_sm")
+        except OSError:
+            subprocess.run(["python", "-m", "spacy", "download", "de_core_news_sm"], check=True)
+            self.spacy_de = spacy.load("de_core_news_sm")
 
         # positional encoding
         if pos_encoding_type == "learned":
