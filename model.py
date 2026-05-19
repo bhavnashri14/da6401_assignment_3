@@ -734,56 +734,92 @@ class Transformer(nn.Module):
 
 
     def infer(self, src_sentence: str) -> str:
-      self.eval()
-      device = next(self.parameters()).device
 
-      tokens = ["<sos>"] + [t.text.lower() for t in self.spacy_de.tokenizer(src_sentence.strip())] + ["<eos>"]
+        self.eval()
 
-      src_indices = [
-          self.src_vocab.stoi.get(tok, self.src_vocab.stoi["<unk>"])
-          for tok in tokens
-      ]
+        device = next(self.parameters()).device
 
-      src = torch.tensor(src_indices, dtype=torch.long, device=device).unsqueeze(0)
-      src_mask = make_src_mask(src).to(device)
+        with torch.no_grad():
 
-      memory = self.encode(src, src_mask)
+            tokens = (
+                ["<sos>"]
+                + [t.text.lower() for t in self.spacy_de.tokenizer(src_sentence.strip())]
+                + ["<eos>"]
+            )
 
-      ys = torch.tensor(
-          [[self.tgt_vocab.stoi["<sos>"]]],
-          dtype=torch.long,
-          device=device
-      )
+            src_indices = [
+                self.src_vocab.stoi.get(
+                    tok,
+                    self.src_vocab.stoi["<unk>"]
+                )
+                for tok in tokens
+            ]
 
-      max_len = 100
+            src = torch.tensor(
+                src_indices,
+                dtype=torch.long,
+                device=device
+            ).unsqueeze(0)
 
-      for _ in range(max_len):
-          tgt_mask = make_tgt_mask(ys).to(device)
+            src_mask = make_src_mask(src).to(device)
 
-          out = self.decode(memory, src_mask, ys, tgt_mask)
+            memory = self.encode(src, src_mask)
 
-          prob = out[:, -1, :]
-          next_word = torch.argmax(prob, dim=-1).item()
+            ys = torch.tensor(
+                [[self.tgt_vocab.stoi["<sos>"]]],
+                dtype=torch.long,
+                device=device
+            )
 
-          ys = torch.cat(
-              [ys, torch.tensor([[next_word]], device=device)],
-              dim=1
-          )
+            max_len = 30
 
-          if next_word == self.tgt_vocab.stoi["<eos>"]:
-              break
+            for _ in range(max_len):
 
-      # detokenize
-      output_tokens = ys.squeeze(0).tolist()
+                tgt_mask = make_tgt_mask(ys).to(device)
 
-      words = []
-      for idx in output_tokens:
-          token = self.tgt_vocab.itos[idx]
+                out = self.decode(
+                    memory,
+                    src_mask,
+                    ys,
+                    tgt_mask
+                )
 
-          if token in ["<sos>", "<pad>"]:
-              continue
-          if token == "<eos>":
-              break
-          words.append(token)
+                prob = out[:, -1, :]
 
-      return " ".join(words)
+                next_word = torch.argmax(
+                    prob,
+                    dim=-1
+                ).item()
+
+                ys = torch.cat(
+                    [
+                        ys,
+                        torch.tensor(
+                            [[next_word]],
+                            dtype=torch.long,
+                            device=device
+                        )
+                    ],
+                    dim=1
+                )
+
+                if next_word == self.tgt_vocab.stoi["<eos>"]:
+                    break
+
+            output_tokens = ys.squeeze(0).tolist()
+
+            words = []
+
+            for idx in output_tokens:
+
+                token = self.tgt_vocab.itos[idx]
+
+                if token in ["<sos>", "<pad>"]:
+                    continue
+
+                if token == "<eos>":
+                    break
+
+                words.append(token)
+
+            return " ".join(words)
