@@ -566,7 +566,7 @@ class Transformer(nn.Module):
         self.d_ff = d_ff
         
         self.checkpoint_path = "model.pt"
-        gdrive_id = "1Y3uICvdAWmidNZJ3lwmGCG0T4AOhUrdK"
+        gdrive_id = "15ctpyPAlXw_BGq4Fca9o6p9kKqPZO30Q"
 
         if not os.path.exists(self.checkpoint_path):
             gdown.download(
