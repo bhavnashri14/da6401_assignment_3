@@ -565,8 +565,8 @@ class Transformer(nn.Module):
         self.num_heads = num_heads
         self.d_ff = d_ff
         
-        self.checkpoint_path = "ckpt_2.1_2.1_noam_scheduler_1_epoch9.pt"
-        gdrive_id = "1R69qLCWe2YtTRT6Qz28RyyJV6aRsKHzx"
+        self.checkpoint_path = "model.pt"
+        gdrive_id = "13BVKrc3jYgd910tey8hzPcFq8ucjcYWm"
 
         if not os.path.exists(self.checkpoint_path):
             gdown.download(
