@@ -559,58 +559,12 @@ class Transformer(nn.Module):
     checkpoint_path: str = None,
 ) -> None:
         super().__init__()
-        self.src_vocab = None
-        self.tgt_vocab = None
+      
         self.d_model = d_model
-        self.src_vocab_size = src_vocab_size
-        self.tgt_vocab_size = tgt_vocab_size
         self.N = N
         self.num_heads = num_heads
         self.d_ff = d_ff
-
-        self.src_vocab_size = src_vocab_size
-        self.tgt_vocab_size = tgt_vocab_size
-
-
-        # embeddings
-        self.src_embed = nn.Embedding(self.src_vocab_size, d_model)
-        self.tgt_embed = nn.Embedding(self.tgt_vocab_size, d_model)
-
-        import subprocess
-        try:
-            self.spacy_de = spacy.load("de_core_news_sm")
-        except OSError:
-            import sys
-            subprocess.run([sys.executable, "-m", "spacy", "download", "de_core_news_sm"], check=True)
-            self.spacy_de = spacy.load("de_core_news_sm")
-
-        # positional encoding
-        if pos_encoding_type == "learned":
-            self.pos_encoding = LearnedPositionalEncoding(d_model, dropout)
-        else:
-            self.pos_encoding = PositionalEncoding(d_model, dropout)
-
-        # encoder / decoder
-        self.encoder = Encoder(
-            EncoderLayer(d_model, num_heads, d_ff, dropout),
-            N
-        )
-
-        self.decoder = Decoder(
-            DecoderLayer(d_model, num_heads, d_ff, dropout),
-            N
-        )
-
-        # output
-        self.fc_out = nn.Linear(d_model, tgt_vocab_size)
-
-        self.dropout = nn.Dropout(dropout)
-
-        # init weights
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-
+        
         self.checkpoint_path = "ckpt_2.1_2.1_noam_scheduler_1_epoch9.pt"
         gdrive_id = "1R69qLCWe2YtTRT6Qz28RyyJV6aRsKHzx"
 
@@ -621,14 +575,81 @@ class Transformer(nn.Module):
                 quiet=False
             )
 
-        if os.path.exists(self.checkpoint_path):
-          state = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
-          self.load_state_dict(state, strict=False)
-        
-        self.load_state_dict(state["model_state_dict"])
+        state = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
 
         self.src_vocab = state["src_vocab"]
         self.tgt_vocab = state["tgt_vocab"]
+
+        self.src_vocab_size = len(self.src_vocab.itos)
+        self.tgt_vocab_size = len(self.tgt_vocab.itos)
+
+        self.src_embed = nn.Embedding(
+            self.src_vocab_size,
+            d_model
+        )
+
+        self.tgt_embed = nn.Embedding(
+            self.tgt_vocab_size,
+            d_model
+        )
+
+        import subprocess
+        try:
+            self.spacy_de = spacy.load("de_core_news_sm")
+
+        except OSError:
+            import sys
+
+            subprocess.run(
+                [
+                    sys.executable,"-m","spacy","download","de_core_news_sm"
+                ],
+                check=True
+            )
+
+            self.spacy_de = spacy.load("de_core_news_sm")
+
+            if pos_encoding_type == "learned":
+                self.pos_encoding = LearnedPositionalEncoding(
+                    d_model,
+                    dropout
+                )
+            else:
+                self.pos_encoding = PositionalEncoding(
+                    d_model,
+                    dropout
+                )
+
+            self.encoder = Encoder(
+                    EncoderLayer(
+                        d_model,
+                        num_heads,
+                        d_ff,
+                        dropout
+                    ),
+                    N
+                )
+            
+            self.decoder = Decoder(
+                  DecoderLayer(
+                      d_model,
+                      num_heads,
+                      d_ff,
+                      dropout
+                  ),
+                  N
+              )
+
+            self.fc_out = nn.Linear(
+                            d_model,
+                            self.tgt_vocab_size
+                        )
+
+            self.dropout = nn.Dropout(dropout)
+            for p in self.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p)
+            self.load_state_dict(state["model_state_dict"])
 
     # ── AUTOGRADER HOOKS ── keep these signatures exactly ─────────────
 
