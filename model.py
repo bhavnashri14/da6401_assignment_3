@@ -611,8 +611,8 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-        self.checkpoint_path = "model.pt"
-        gdrive_id = "1YcArQGpScCQdKbkK0eaCbBRB78bBQILQ"
+        self.checkpoint_path = "ckpt_2.1_2.1_noam_scheduler_1_epoch9.pt"
+        gdrive_id = "1R69qLCWe2YtTRT6Qz28RyyJV6aRsKHzx"
 
         if not os.path.exists(self.checkpoint_path):
             gdown.download(
@@ -622,8 +622,13 @@ class Transformer(nn.Module):
             )
 
         if os.path.exists(self.checkpoint_path):
-          state = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
+          state = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
           self.load_state_dict(state, strict=False)
+        
+        self.load_state_dict(state["model_state_dict"])
+
+        self.src_vocab = state["src_vocab"]
+        self.tgt_vocab = state["tgt_vocab"]
 
     # ── AUTOGRADER HOOKS ── keep these signatures exactly ─────────────
 
