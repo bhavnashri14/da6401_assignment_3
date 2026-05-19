@@ -580,7 +580,8 @@ class Transformer(nn.Module):
         try:
             self.spacy_de = spacy.load("de_core_news_sm")
         except OSError:
-            subprocess.run(["python", "-m", "spacy", "download", "de_core_news_sm"], check=True)
+            import sys
+            subprocess.run([sys.executable, "-m", "spacy", "download", "de_core_news_sm"], check=True)
             self.spacy_de = spacy.load("de_core_news_sm")
 
         # positional encoding
